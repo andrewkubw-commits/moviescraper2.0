@@ -42,12 +42,19 @@ function describeError(err) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// Retry network-level failures (supabase-js throws on fetch errors; HTTP errors come back as {error}).
+// postgrest-js swallows undici network errors into { error: { message: 'TypeError: fetch failed' } }
+// instead of throwing, so we must detect them by message and retry/treat as transient.
+const TRANSIENT_RE =
+  /fetch failed|network|socket hang up|other side closed|terminated|aborted|und_err|econnreset|econnrefused|etimedout|enotfound|eai_again|bad gateway|gateway time|service unavailable|too many requests|payload too large|uri too long|request entity too large|premature close/i;
+
 async function withRetry(label, fn, retries = cfg.MAX_RETRIES) {
   let lastErr;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      return await fn();
+      const res = await fn();
+      const msg = res?.error?.message;
+      if (msg && TRANSIENT_RE.test(msg)) throw new Error(msg);
+      return res;
     } catch (err) {
       lastErr = err;
       if (attempt < retries) await sleep(500 * 2 ** attempt + Math.floor(Math.random() * 250));
@@ -55,6 +62,11 @@ async function withRetry(label, fn, retries = cfg.MAX_RETRIES) {
   }
   throw new Error(`${label}: ${describeError(lastErr)}`);
 }
+
+// Max items per `.in()` filter and per upsert batch. Keeps request URLs well under
+// Cloudflare's ~16KB limit and request bodies well under Supabase's payload limit.
+const IN_CHUNK = 100;
+const UPSERT_CHUNK = 200;
 
 const chunk = (items, size) => {
   const out = [];
@@ -107,7 +119,7 @@ async function getExistingSourceIds(languageCode) {
 async function syncRows(rows, hashField) {
   if (rows.length === 0) return { written: 0, skipped: 0 };
   const existing = new Map();
-  for (const part of chunk(rows.map((r) => r.uid), 500)) {
+  for (const part of chunk(rows.map((r) => r.uid), IN_CHUNK)) {
     const { data, error } = await withRetry('syncRows.select', () =>
       client().from('movies').select(`uid,${hashField}`).in('uid', part)
     );
@@ -118,7 +130,7 @@ async function syncRows(rows, hashField) {
   const changed = rows.filter((r) => existing.get(r.uid) !== r[hashField]);
   const now = new Date().toISOString();
   let written = 0;
-  for (const part of chunk(changed, 500)) {
+  for (const part of chunk(changed, UPSERT_CHUNK)) {
     const payload = part.map((r) => ({ ...r, updated_at: now }));
     const { error } = await withRetry('syncRows.upsert', () =>
       client().from('movies').upsert(payload, { onConflict: 'uid' })
@@ -158,12 +170,38 @@ async function countMovies() {
   return count || 0;
 }
 
+// Raw-fetch probe using the global error (incl. err.cause) that postgrest-js hides.
+// Reproduces the `.in()` query shapes so we can see exactly which request size breaks.
+async function diagnose() {
+  const base = cfg.SUPABASE_URL.replace(/\/+$/, '');
+  const key = cfg.SUPABASE_SERVICE_KEY;
+  const headers = { apikey: key, Authorization: `Bearer ${key}` };
+  const uuid = '00000000-0000-0000-0000-000000000000';
+  const cases = [
+    ['GET select=uid&limit=1', `${base}/rest/v1/movies?select=uid&limit=1`],
+    ['GET in(50)', `${base}/rest/v1/movies?select=uid&uid=in.(${Array(50).fill(uuid).join(',')})`],
+    ['GET in(500)', `${base}/rest/v1/movies?select=uid&uid=in.(${Array(500).fill(uuid).join(',')})`],
+    ['DELETE noop (write path)', `${base}/rest/v1/movies?uid=eq.__diagnostic_probe__`],
+  ];
+  for (const [label, url] of cases) {
+    const method = label.startsWith('DELETE') ? 'DELETE' : 'GET';
+    try {
+      const r = await fetch(url, { method, headers: { ...headers, Prefer: 'return=minimal' } });
+      const text = await r.text();
+      console.log(`  ${label}: ${r.status} url_len=${url.length}${text ? ` body=${text.slice(0, 120)}` : ''}`);
+    } catch (err) {
+      console.log(`  ${label}: FAILED url_len=${url.length} -> ${describeError(err)}`);
+    }
+  }
+}
+
 module.exports = {
   enabled,
   client,
   chunk,
   describeError,
   ping,
+  diagnose,
   getState,
   setState,
   getExistingSourceIds,

@@ -168,7 +168,9 @@ async function main() {
     }
   }
   if (mode === 'check') {
-    console.log('check OK');
+    console.log('\n[check] raw request probes:');
+    await sb.diagnose();
+    console.log('check done');
     return;
   }
 
