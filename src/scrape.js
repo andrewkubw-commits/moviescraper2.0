@@ -114,6 +114,9 @@ async function runEpisodes({ limit }) {
       counters[status === 'locked' ? 'locked' : 'done']++;
       return {
         uid: m.uid,
+        source_id: m.source_id,
+        language_code: m.language_code,
+        title: m.title,
         is_season: isSeason,
         episode_count: episodes.length,
         episodes,
