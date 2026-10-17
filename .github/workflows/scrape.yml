@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'mode: full | metadata | episodes | stats'
+        description: 'mode: full | metadata | episodes | stats | check'
         type: choice
-        options: [full, metadata, episodes, stats]
+        options: [full, metadata, episodes, stats, check]
         default: full
       limit:
         description: 'max movies to resolve this run (episodes batch)'
@@ -37,6 +37,17 @@ jobs:
 
       - name: Install deps
         run: npm ci
+
+      - name: Check secrets shape
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          echo "SUPABASE_URL length: ${#SUPABASE_URL}"
+          echo "SUPABASE_URL starts https://: $([[ "$SUPABASE_URL" == https://* ]] && echo yes || echo NO)"
+          echo "SERVICE_KEY length: ${#SUPABASE_SERVICE_KEY}"
+          if printf '%s' "$SUPABASE_URL" | grep -q '[[:space:]]'; then echo "WARNING: SUPABASE_URL contains whitespace"; fi
+          if printf '%s' "$SUPABASE_SERVICE_KEY" | grep -q '[[:space:]]'; then echo "WARNING: SERVICE_KEY contains whitespace"; fi
 
       - name: Run scraper
         env:

@@ -51,6 +51,17 @@ async function runMetadata({ langs, fullRefresh }) {
     const collected = [];
     let page = 0;
     let stop = false;
+    let totalWritten = 0;
+    let totalSkipped = 0;
+    const flush = async () => {
+      if (collected.length === 0) return;
+      for (const row of collected) row.metadata_hash = metadataHash(row);
+      const { written, skipped } = await sb.syncRows(collected, 'metadata_hash');
+      totalWritten += written;
+      totalSkipped += skipped;
+      collected.length = 0;
+    };
+
     while (!stop) {
       const res = await api.getMovies(lang, page);
       const all = res?.allMovies || {};
@@ -67,6 +78,9 @@ async function runMetadata({ langs, fullRefresh }) {
         `  page ${page}/${all.totalPages ?? '?'} items=${items.length} new=${newOnPage} total=${all.totalCount ?? '?'}`
       );
 
+      // Flush periodically so a later network failure doesn't lose all fetched pages.
+      if (collected.length >= 500) await flush();
+
       page++;
       if (!fullRefresh && page > 0 && newOnPage === 0) {
         console.log('  full page already known -> stopping (incremental)');
@@ -76,11 +90,9 @@ async function runMetadata({ langs, fullRefresh }) {
       if (page > 1000) stop = true;
     }
 
-    for (const row of collected) row.metadata_hash = metadataHash(row);
-    const { written, skipped } = await sb.syncRows(collected, 'metadata_hash');
-    console.log(`  collected=${collected.length} written=${written} skipped(unchanged)=${skipped}`);
-    summary[lang] = { collected: collected.length, written, skipped };
-    await dump(`metadata-${lang}.json`, collected);
+    await flush();
+    console.log(`  written=${totalWritten} skipped(unchanged)=${totalSkipped}`);
+    summary[lang] = { written: totalWritten, skipped: totalSkipped };
   }
   return summary;
 }
@@ -138,9 +150,26 @@ async function main() {
   const fullRefresh = Boolean(opts['full-refresh']);
 
   console.log(`reba-scraper mode=${mode} langs=${langs.join(',')} supabase=${sb.enabled ? 'on' : 'OFF'}`);
-  if (['metadata', 'episodes', 'full'].includes(mode) && !sb.enabled) {
+
+  const needsSupabase = ['metadata', 'episodes', 'full', 'stats', 'check'].includes(mode);
+  if (needsSupabase && !sb.enabled) {
     console.error('\nSupabase not configured. Set SUPABASE_URL + SUPABASE_SERVICE_KEY, or use `npm run sample`.');
     process.exit(1);
+  }
+
+  if (sb.enabled) {
+    try {
+      const info = await sb.ping();
+      console.log(`supabase connectivity OK (url=${info.url}, movies=${info.count ?? '?'})`);
+    } catch (err) {
+      console.error(`\nSupabase preflight FAILED: ${sb.describeError(err)}`);
+      console.error('Most common cause: a trailing space/newline in the SUPABASE_URL or SUPABASE_SERVICE_KEY secret.');
+      process.exit(1);
+    }
+  }
+  if (mode === 'check') {
+    console.log('check OK');
+    return;
   }
 
   const started = Date.now();
@@ -166,6 +195,7 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error('FATAL', err);
+  console.error('FATAL:', sb.describeError ? sb.describeError(err) : err);
+  if (err?.stack) console.error(err.stack);
   process.exit(1);
 });

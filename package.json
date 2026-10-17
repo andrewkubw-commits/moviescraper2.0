@@ -15,7 +15,8 @@
     "metadata": "node src/scrape.js --mode=metadata",
     "episodes": "node src/scrape.js --mode=episodes",
     "full": "node src/scrape.js --mode=full",
-    "stats": "node src/scrape.js --mode=stats"
+    "stats": "node src/scrape.js --mode=stats",
+    "check": "node src/scrape.js --mode=check"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.620.0",

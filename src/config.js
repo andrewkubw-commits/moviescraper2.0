@@ -34,8 +34,8 @@ module.exports = {
   MAX_RETRIES: int(process.env.MAX_RETRIES, 4),
   RETRY_BASE_MS: int(process.env.RETRY_BASE_MS, 800),
 
-  SUPABASE_URL: process.env.SUPABASE_URL || '',
-  SUPABASE_SERVICE_KEY: process.env.SUPABASE_SERVICE_KEY || '',
+  SUPABASE_URL: String(process.env.SUPABASE_URL || '').trim(),
+  SUPABASE_SERVICE_KEY: String(process.env.SUPABASE_SERVICE_KEY || '').trim(),
 
   DATA_DIR: path.join(__dirname, '..', 'data'),
 };
