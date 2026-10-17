@@ -1,0 +1,6 @@
+# Supabase project config for CLI (edge functions).
+# Link with: supabase link --project-ref <your-ref>
+project_id = "movies-scraper"
+
+[functions.get-media]
+verify_jwt = false

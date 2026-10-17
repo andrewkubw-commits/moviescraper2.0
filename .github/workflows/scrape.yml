@@ -1,0 +1,61 @@
+name: scrape
+
+on:
+  schedule:
+    # every 6 hours — progressive backfill + incremental refresh
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'mode: full | metadata | episodes | stats'
+        type: choice
+        options: [full, metadata, episodes, stats]
+        default: full
+      limit:
+        description: 'max movies to resolve this run (episodes batch)'
+        default: '250'
+      full_refresh:
+        description: 'force full metadata refresh (ignore incremental stop)'
+        type: boolean
+        default: false
+
+concurrency:
+  group: reba-scrape
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Run scraper
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          VIDEO_BATCH: ${{ github.event.inputs.limit || '250' }}
+          CONCURRENCY: '4'
+          MAX_RETRIES: '4'
+        run: |
+          MODE="${{ github.event.inputs.mode || 'full' }}"
+          EXTRA=""
+          if [ "${{ github.event.inputs.full_refresh }}" = "true" ]; then EXTRA="--full-refresh"; fi
+          node src/scrape.js --mode="$MODE" $EXTRA
+
+      - name: Upload JSON dump
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: movies-json-${{ github.run_number }}
+          path: data/
+          if-no-files-found: ignore
+          retention-days: 14

@@ -1,0 +1,30 @@
+{
+  "name": "miheto3.0scraper",
+  "version": "3.0.0",
+  "description": "movie scraper",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tyakorigy03/moviescraperv2.git"
+  },
+  "license": "ISC",
+  "author": "tyak origy",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "sample": "node src/sample.js",
+    "metadata": "node src/scrape.js --mode=metadata",
+    "episodes": "node src/scrape.js --mode=episodes",
+    "full": "node src/scrape.js --mode=full",
+    "stats": "node src/scrape.js --mode=stats"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.620.0",
+    "@supabase/supabase-js": "^2.50.2",
+    "axios": "^1.10.0",
+    "dotenv": "^17.0.0",
+    "firebase-admin": "^13.4.0",
+    "fs-extra": "^11.3.0",
+    "fuse.js": "^7.1.0",
+    "puppeteer": "^24.11.1"
+  }
+}
